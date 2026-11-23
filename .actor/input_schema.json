@@ -13,7 +13,7 @@
       "title": "Collections to read",
       "type": "array",
       "description": "Any of: organizations, people, locations, meetings, agendas, papers, drafts, files, committees, participations, elections",
-      "editor": "textarea",
+      "editor": "stringList",
       "default": [
         "meetings",
         "papers"
