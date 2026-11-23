@@ -6,7 +6,7 @@
     "systemUrl": {
       "title": "OParl system URL",
       "type": "string",
-      "description": "The OParl entry point of one municipality, e.g. https://ratsinformation.stadt-koeln.de/oparl/system",
+      "description": "The OParl entry point of one municipality, exactly as the server serves it. It is not always /oparl/system: measured examples are https://www.leipzig.sitzung-online.de/oparl/system, https://bochum.ratsinfomanagement.net/webservice/oparl/v1.1/system and https://www.muenchen-transparent.de/oparl/v1.0",
       "editor": "textfield"
     },
     "collections": {
