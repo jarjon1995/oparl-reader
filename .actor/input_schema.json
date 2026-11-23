@@ -6,29 +6,37 @@
     "systemUrl": {
       "title": "OParl system URL",
       "type": "string",
-      "description": "The OParl entry point of one municipality, e.g. https://ratsinformation.stadt-koeln.de/oparl/system"
+      "description": "The OParl entry point of one municipality, e.g. https://ratsinformation.stadt-koeln.de/oparl/system",
+      "editor": "string"
     },
     "collections": {
       "title": "Collections to read",
       "type": "array",
       "description": "Any of: organizations, people, locations, meetings, agendas, papers, drafts, files, committees, participations, elections",
       "editor": "json",
-      "default": ["meetings", "papers"]
+      "default": [
+        "meetings",
+        "papers"
+      ]
     },
     "maxItems": {
       "title": "Maximum items per collection",
       "type": "integer",
       "default": 200,
       "minimum": 1,
-      "maximum": 20000
+      "maximum": 20000,
+      "editor": "number"
     },
     "pageSize": {
       "title": "Page size",
       "type": "integer",
       "default": 50,
       "minimum": 1,
-      "maximum": 100
+      "maximum": 100,
+      "editor": "number"
     }
   },
-  "required": ["systemUrl"]
+  "required": [
+    "systemUrl"
+  ]
 }
