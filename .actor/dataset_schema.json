@@ -1,0 +1,183 @@
+{
+  "actorSpecification": 1,
+  "fields": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "string",
+        "nullable": true,
+        "description": "Canonical OParl ID of the record, an absolute URL under the municipality's endpoint.",
+        "example": "https://www.example-city.de/oparl/v1.0/meeting/587947"
+      },
+      "type": {
+        "type": "string",
+        "nullable": true,
+        "description": "OParl type without the schema prefix: Meeting, Paper, Organization, Person, Location, AgendaItem, File, Draft.",
+        "example": "Meeting"
+      },
+      "name": {
+        "type": "string",
+        "nullable": true,
+        "description": "Display name; for people the fullName.",
+        "example": "Committee for Urban Development"
+      },
+      "start": {
+        "type": "string",
+        "nullable": true,
+        "description": "Start as the server published it, usually ISO 8601 with offset. Only on meetings and agenda items.",
+        "example": "2005-01-18T19:00:00+01:00"
+      },
+      "end": {
+        "type": "string",
+        "nullable": true,
+        "description": "End, same format, where the server publishes it.",
+        "example": "2005-01-18T21:30:00+01:00"
+      },
+      "public": {
+        "type": "boolean",
+        "nullable": true,
+        "description": "Whether the record is public, where the server states it. Absent on many vendors.",
+        "example": true
+      },
+      "location": {
+        "type": "string",
+        "nullable": true,
+        "description": "Name of the linked location, resolved one level; the raw object keeps the link.",
+        "example": "Great Town Hall"
+      },
+      "organizationIds": {
+        "type": "array",
+        "nullable": true,
+        "description": "OParl IDs of the responsible organizations/committees.",
+        "items": {
+          "type": "string",
+          "nullable": true,
+          "description": "Organization ID URL."
+        },
+        "example": [
+          "https://www.example-city.de/oparl/v1.0/organization/gremium/253"
+        ]
+      },
+      "participantIds": {
+        "type": "array",
+        "nullable": true,
+        "description": "OParl IDs of the participants, where published.",
+        "items": {
+          "type": "string",
+          "nullable": true,
+          "description": "Person ID URL."
+        }
+      },
+      "license": {
+        "type": "string",
+        "nullable": true,
+        "description": "License of the source system as its System object declares it; often missing.",
+        "example": "CC-BY-4.0"
+      },
+      "sourceSystem": {
+        "type": "string",
+        "nullable": true,
+        "description": "Name of the municipality's OParl system.",
+        "example": "Example City Transparent"
+      },
+      "vendor": {
+        "type": "string",
+        "nullable": true,
+        "description": "Vendor string of the source system, usually a repository URL. Useful for grouping by software.",
+        "example": "https://github.com/example/vendor"
+      },
+      "fetchedAt": {
+        "type": "string",
+        "nullable": true,
+        "description": "UTC timestamp of this fetch, ISO 8601.",
+        "example": "2026-11-23T20:13:07Z"
+      },
+      "raw": {
+        "type": "object",
+        "nullable": true,
+        "description": "The untouched OParl object as the server returned it, including fields this Actor does not flatten (agendaItem, auxiliaryFile, consultation, web, created, modified).",
+        "additionalProperties": true
+      },
+      "_report": {
+        "type": "boolean",
+        "nullable": true,
+        "description": "True on exactly one item per run: the capability fingerprint rather than a council record.",
+        "example": true
+      },
+      "report": {
+        "type": "object",
+        "nullable": true,
+        "description": "Measured facts about the endpoint: System metadata, body count, and per collection the resolved URL, the paging mode proved by probing (page, offset or single_page), the item count and the first ID. A collection the endpoint does not offer appears with status not_available and the attempts that were made.",
+        "additionalProperties": true
+      }
+    },
+    "required": [],
+    "additionalProperties": true
+  },
+  "views": {
+    "overview": {
+      "title": "Overview",
+      "description": "One row per record: what it is, when, where and which system it came from.",
+      "transformation": {
+        "fields": [
+          "type",
+          "name",
+          "start",
+          "location",
+          "sourceSystem",
+          "id"
+        ]
+      },
+      "display": {
+        "component": "table",
+        "properties": {
+          "type": {
+            "label": "Type"
+          },
+          "name": {
+            "label": "Name"
+          },
+          "start": {
+            "label": "Start",
+            "format": "date"
+          },
+          "location": {
+            "label": "Location"
+          },
+          "sourceSystem": {
+            "label": "System"
+          },
+          "id": {
+            "label": "OParl ID"
+          }
+        }
+      }
+    },
+    "raw": {
+      "title": "Raw OParl object",
+      "description": "The untouched vendor object, for anything this Actor does not flatten.",
+      "transformation": {
+        "fields": [
+          "id",
+          "type",
+          "raw"
+        ]
+      },
+      "display": {
+        "component": "table",
+        "properties": {
+          "id": {
+            "label": "OParl ID"
+          },
+          "type": {
+            "label": "Type"
+          },
+          "raw": {
+            "label": "Raw object"
+          }
+        }
+      }
+    }
+  }
+}

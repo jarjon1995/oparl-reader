@@ -1,0 +1,15 @@
+{
+  "$schema": "https://apify-projects.github.io/actor-json-schemas/output.json?v=0.3",
+  "actorOutputSchemaVersion": 1,
+  "title": "Output of the OParl Council Data Reader",
+  "description": "One dataset of normalised OParl records (meetings, papers and the other requested collections) from a single municipal endpoint, plus one final item with _report=true carrying the measured capability fingerprint of that endpoint.",
+  "type": "object",
+  "properties": {
+    "records": {
+      "type": "string",
+      "title": "OParl records",
+      "description": "Normalised OParl records from the requested collections. Each item keeps the vendor's original object under 'raw' and adds the fields a caller filters on: id, type, name, start, end, location, organizationIds, sourceSystem, vendor, fetchedAt. The last item is the run report (_report=true) with the endpoint's paging mode, resolved collection URLs and per-collection status, so a run that found nothing is still readable.",
+      "template": "{{links.apiDefaultDatasetUrl}}/items"
+    }
+  }
+}
