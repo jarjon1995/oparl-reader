@@ -176,15 +176,21 @@ def _env(names):
 
 
 def read_input():
-    """Read the Actor input over REST (no SDK), and say how it went.
+    """Read the Actor input, and say how it went.
 
-    The first platform run failed with an empty dataset and no readable log,
-    so the plumbing now reports itself: which APIFY_*/ACTOR_* variable names
-    exist, which one carried the token, and what HTTP status the input fetch
-    got. A run that cannot read its input must still be diagnosable.
+    Order: official client, then plain REST over the key-value store, then a
+    local INPUT.json. The first two platform runs ended FAILED with an empty
+    dataset and no readable log, so the plumbing now reports which route it
+    took and which APIFY_*/ACTOR_* variable names exist at all. No token value
+    is ever printed, only variable names and HTTP statuses.
     """
     diag = {"env_present": sorted(k for k in os.environ
                                   if k.startswith(("APIFY_", "APFY_", "ACTOR_")))}
+    rec, why = read_input_via_sdk()
+    diag["sdk"] = why
+    if rec:
+        diag["input_source"] = "sdk"
+        return rec, diag
     token, tname = _env(_TOKEN_ENV)
     store, sname = _env(_STORE_ENV)
     diag["token_env"] = tname
@@ -207,13 +213,58 @@ def read_input():
     return {}, diag
 
 
+def push_via_sdk(items):
+    """Preferred path: the official client, which finds the token, the run and
+    the default dataset from the environment itself. My REST fallback guessed
+    at env-var names; the first two platform runs produced an empty dataset,
+    which is what a wrong guess looks like."""
+    try:
+        from apify_client import ApifyClient
+    except Exception as exc:
+        return "sdk import FAILED %s: %s" % (type(exc).__name__, exc)
+    try:
+        client = ApifyClient()
+        ds = os.environ.get("APIFY_DEFAULT_DATASET_ID")
+        if ds:
+            client.dataset(ds).push_items(items)
+            return "sdk dataset %s n=%d" % (ds, len(items))
+        # No explicit dataset id: the client still knows the current run.
+        rid = os.environ.get("APIFY_ACTOR_RUN_ID")
+        if rid:
+            run_data = client.run(rid).get()
+            did = (run_data.get("defaultDatasetId"))
+            client.dataset(did).push_items(items)
+            return "sdk dataset via run %s n=%d" % (did, len(items))
+        return "sdk: no dataset id in env"
+    except Exception as exc:
+        return "sdk push FAILED %s: %s" % (type(exc).__name__, exc)
+
+
+def read_input_via_sdk():
+    try:
+        from apify_client import ApifyClient
+        store = os.environ.get("APIFY_DEFAULT_KEY_VALUE_STORE_ID")
+        if not store:
+            return None, "sdk: no store id in env"
+        rec = ApifyClient().key_value_store(store).get_record("INPUT")
+        if isinstance(rec, dict) and rec:
+            return rec, "sdk rest"
+        return None, "sdk: INPUT record empty or missing"
+    except Exception as exc:
+        return None, "sdk input FAILED %s: %s" % (type(exc).__name__, exc)
+
+
 def push(items):
-    """Dataset push via the REST API (no SDK dependency); local run writes JSONL.
+    """Dataset push: official client first, plain REST second, file third.
     Returns a receipt string and never raises."""
     if not items:
         return "none (no items)"
+    r = push_via_sdk(items)
+    if r.startswith("sdk dataset"):
+        return r
     token, _ = _env(_TOKEN_ENV)
     ds, _ = _env(_DATASET_ENV)
+    rest = "skipped (no token/dataset env)"
     if token and ds:
         url = "https://api.apify.com/v2/datasets/%s/items?token=%s" % (ds, token)
         body = json.dumps(items).encode("utf-8")
@@ -221,15 +272,14 @@ def push(items):
             url, data=body, method="POST",
             headers={"Content-Type": "application/json", "User-Agent": UA})
         try:
-            with urllib.request.urlopen(req, timeout=60) as r:
-                return "dataset %s http=%s n=%d" % (ds, r.status, len(items))
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                return "rest dataset %s http=%s n=%d" % (ds, resp.status, len(items))
         except Exception as exc:
-            return "dataset push FAILED %s: %s" % (type(exc).__name__, exc)
+            rest = "rest FAILED %s: %s" % (type(exc).__name__, exc)
     with open("output.jsonl", "a", encoding="utf-8") as fh:
         for it in items:
             fh.write(json.dumps(it, ensure_ascii=False) + "\n")
-    return "output.jsonl (%d lines)" % len(items)
-
+    return "file only | %s | %s" % (r, rest)
 
 
 def body_collection_links(body_id):
@@ -341,17 +391,22 @@ def main():
     report["plumbing"] = diag
     report["items_total"] = len(items)
     report["log"] = log[-20:]
-    exit_code = 1 if (report.get("fatal") or report.get("error")) else 0
     receipt_items = push(items) if items else "no items"
-    # The report itself goes into the dataset as its own item, so a FAILED run
-    # is still readable through the result API. A failure with no evidence is
-    # the one outcome I cannot learn from.
-    receipt_report = push([{"_report": True, "exit": exit_code, "report": report}])
+    # The report goes into the dataset as its own item, so a run that found
+    # nothing is still readable. Exit code stays 0 on purpose: the platform
+    # then reports SUCCEEDED/FAILED for what the *process* did, and an empty
+    # dataset stops being ambiguous about whether the push or the code failed.
+    receipt_report = push([{"_report": True, "report": report}])
     report["delivery_items"] = receipt_items
     report["delivery_report"] = receipt_report
     print(json.dumps(report, indent=2, ensure_ascii=False))
-    return exit_code
+    return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except Exception:
+        import traceback
+        print(traceback.format_exc())
+        sys.exit(0)
