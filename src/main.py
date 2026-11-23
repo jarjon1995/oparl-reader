@@ -20,7 +20,7 @@ import urllib.parse
 import urllib.request
 
 UA = "oparl-reader/0.1 (Apify Actor; contact: anselm@posteo.de)"
-TIMEOUT = 25
+TIMEOUT = 40
 ALL_COLLECTIONS = ("organizations", "people", "locations", "meetings",
                    "agendas", "papers", "drafts", "files", "committees",
                    "participations", "elections")
@@ -392,12 +392,13 @@ def main():
     report["items_total"] = len(items)
     report["log"] = log[-20:]
     receipt_items = push(items) if items else "no items"
-    # The report goes into the dataset as its own item, so a run that found
-    # nothing is still readable. Exit code stays 0 on purpose: the platform
-    # then reports SUCCEEDED/FAILED for what the *process* did, and an empty
-    # dataset stops being ambiguous about whether the push or the code failed.
-    receipt_report = push([{"_report": True, "report": report}])
     report["delivery_items"] = receipt_items
+    # The report goes into the dataset as its own item, so a run that found
+    # nothing is still readable, and it carries the receipt for the item push
+    # so a failure says which route (sdk / rest / file) was taken. Exit code
+    # stays 0 on purpose: an empty dataset then cannot be mistaken for a
+    # crashed process.
+    receipt_report = push([{"_report": True, "report": report}])
     report["delivery_report"] = receipt_report
     print(json.dumps(report, indent=2, ensure_ascii=False))
     return 0
