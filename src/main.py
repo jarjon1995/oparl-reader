@@ -160,44 +160,76 @@ def flatten(obj, meta):
     return {k: v for k, v in out.items() if v is not None}
 
 
+_TOKEN_ENV = ("APIFY_TOKEN", "APIFY_API_TOKEN", "APFY_API_TOKEN",
+              "ACTOR_API_TOKEN")
+_STORE_ENV = ("APIFY_DEFAULT_KEY_VALUE_STORE_ID", "ACTOR_DEFAULT_KEY_VALUE_STORE_ID")
+_DATASET_ENV = ("APIFY_DEFAULT_DATASET_ID", "ACTOR_DEFAULT_DATASET_ID")
+
+
+def _env(names):
+    """First env var that is set. The token VALUE is never printed anywhere."""
+    for n in names:
+        v = os.environ.get(n)
+        if v:
+            return v, n
+    return None, None
+
+
 def read_input():
-    """Apify passes input through the default key-value store; locally use INPUT.json."""
-    token = os.environ.get("APIFY_TOKEN")
-    store = os.environ.get("APIFY_DEFAULT_KEY_VALUE_STORE_ID")
+    """Read the Actor input over REST (no SDK), and say how it went.
+
+    The first platform run failed with an empty dataset and no readable log,
+    so the plumbing now reports itself: which APIFY_*/ACTOR_* variable names
+    exist, which one carried the token, and what HTTP status the input fetch
+    got. A run that cannot read its input must still be diagnosable.
+    """
+    diag = {"env_present": sorted(k for k in os.environ
+                                  if k.startswith(("APIFY_", "APFY_", "ACTOR_")))}
+    token, tname = _env(_TOKEN_ENV)
+    store, sname = _env(_STORE_ENV)
+    diag["token_env"] = tname
+    diag["store_env"] = sname
     if token and store:
-        url = ("https://api.apify.com/v2/key-value-stores/%s/records/INPUT?token=%s"
-               % (store, token))
+        url = ("https://api.apify.com/v2/key-value-stores/%s/records/INPUT"
+               "?token=%s" % (store, token))
         st, payload, note = get(url)
-        if isinstance(payload, dict):
-            return payload
-        sys.stderr.write("input fetch http=%s %s\n" % (st, note))
+        diag["input_http"] = st
+        if note:
+            diag["input_note"] = note
+        if isinstance(payload, dict) and payload:
+            diag["input_source"] = "rest"
+            return payload, diag
     if os.path.exists("INPUT.json"):
         with open("INPUT.json", encoding="utf-8") as fh:
-            return json.load(fh)
-    return {}
+            diag["input_source"] = "INPUT.json"
+            return json.load(fh), diag
+    diag["input_source"] = "none"
+    return {}, diag
 
 
 def push(items):
-    """Dataset push via the REST API (no SDK dependency); local run writes JSONL."""
+    """Dataset push via the REST API (no SDK dependency); local run writes JSONL.
+    Returns a receipt string and never raises."""
     if not items:
         return "none (no items)"
-    token = os.environ.get("APIFY_TOKEN")
-    ds = os.environ.get("APIFY_DEFAULT_DATASET_ID")
+    token, _ = _env(_TOKEN_ENV)
+    ds, _ = _env(_DATASET_ENV)
     if token and ds:
         url = "https://api.apify.com/v2/datasets/%s/items?token=%s" % (ds, token)
         body = json.dumps(items).encode("utf-8")
-        req = urllib.request.Request(url, data=body, method="POST",
-                                     headers={"Content-Type": "application/json",
-                                              "User-Agent": UA})
+        req = urllib.request.Request(
+            url, data=body, method="POST",
+            headers={"Content-Type": "application/json", "User-Agent": UA})
         try:
             with urllib.request.urlopen(req, timeout=60) as r:
-                return "dataset %s http=%s" % (ds, r.status)
+                return "dataset %s http=%s n=%d" % (ds, r.status, len(items))
         except Exception as exc:
             return "dataset push FAILED %s: %s" % (type(exc).__name__, exc)
-    with open("output.jsonl", "w", encoding="utf-8") as fh:
+    with open("output.jsonl", "a", encoding="utf-8") as fh:
         for it in items:
             fh.write(json.dumps(it, ensure_ascii=False) + "\n")
     return "output.jsonl (%d lines)" % len(items)
+
 
 
 def body_collection_links(body_id):
@@ -298,14 +330,27 @@ def run(inp):
 
 
 def main():
-    inp = read_input()
-    report, items, log = run(inp)
-    pushed = push(items)
-    report["delivery"] = pushed
+    inp, diag = read_input()
+    try:
+        report, items, log = run(inp)
+    except Exception:
+        import traceback
+        report = {"fatal": "unhandled exception in run()",
+                  "traceback": traceback.format_exc()[-3000:]}
+        items, log = [], []
+    report["plumbing"] = diag
     report["items_total"] = len(items)
     report["log"] = log[-20:]
+    exit_code = 1 if (report.get("fatal") or report.get("error")) else 0
+    receipt_items = push(items) if items else "no items"
+    # The report itself goes into the dataset as its own item, so a FAILED run
+    # is still readable through the result API. A failure with no evidence is
+    # the one outcome I cannot learn from.
+    receipt_report = push([{"_report": True, "exit": exit_code, "report": report}])
+    report["delivery_items"] = receipt_items
+    report["delivery_report"] = receipt_report
     print(json.dumps(report, indent=2, ensure_ascii=False))
-    return 0 if not report.get("fatal") and not report.get("error") else 1
+    return exit_code
 
 
 if __name__ == "__main__":
