@@ -24,14 +24,16 @@
       "type": "integer",
       "default": 200,
       "minimum": 1,
-      "maximum": 20000
+      "maximum": 20000,
+      "description": "Maximum records to return per collection. Each page fetched counts against the run, so keep this small when testing an endpoint."
     },
     "pageSize": {
       "title": "Page size",
       "type": "integer",
       "default": 50,
       "minimum": 1,
-      "maximum": 100
+      "maximum": 100,
+      "description": "Records per request where the server accepts a page size; ignored where it does not (measured: SD.NET RIM refuses it with HTTP 400)."
     }
   },
   "required": [
