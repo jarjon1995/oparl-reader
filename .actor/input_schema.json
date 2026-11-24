@@ -34,6 +34,12 @@
       "minimum": 1,
       "maximum": 100,
       "description": "Records per request where the server accepts a page size; ignored where it does not (measured: SD.NET RIM refuses it with HTTP 400)."
+    },
+    "debug": {
+      "title": "Include run plumbing in the report",
+      "type": "boolean",
+      "description": "Off by default. When on, the _report item also carries the environment variable names present, the SDK error text and the per-request log. Useful when an endpoint behaves oddly; a normal customer run does not need it.",
+      "default": false
     }
   },
   "required": [

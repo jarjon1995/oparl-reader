@@ -108,7 +108,7 @@
       "report": {
         "type": "object",
         "nullable": true,
-        "description": "Measured facts about the endpoint: System metadata, body count, and per collection the resolved URL, the paging mode proved by probing (page, offset or single_page), the item count and the first ID. A collection the endpoint does not offer appears with status not_available and the attempts that were made.",
+        "description": "Measured facts about the endpoint: System metadata (name, vendor, licence, OParl version), and per collection the resolved URL, the paging mode proved by probing (page, offset or single_page) and the item count. A collection the endpoint does not offer appears with status not_available. Also carries items_total, the dataset-push receipt and the billing receipt. Environment variable names, SDK error text and the request log appear only when the input sets debug=true.",
         "additionalProperties": true
       }
     },

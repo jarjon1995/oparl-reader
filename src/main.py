@@ -184,6 +184,8 @@ def read_input():
     took and which APIFY_*/ACTOR_* variable names exist at all. No token value
     is ever printed, only variable names and HTTP statuses.
     """
+    # Collected in memory only. Whether any of it reaches the dataset is
+    # decided in main() by the input's debug flag; nothing here is printed.
     diag = {"env_present": sorted(k for k in os.environ
                                   if k.startswith(("APIFY_", "APFY_", "ACTOR_")))}
     rec, why = read_input_via_sdk()
@@ -256,12 +258,16 @@ def read_input_via_sdk():
 
 def push(items):
     """Dataset push: official client first, plain REST second, file third.
-    Returns a receipt string and never raises."""
+
+    Returns (receipt, detail). The receipt is short and safe to show a customer
+    ("rest dataset ... n=16"); the detail carries why a route failed and is only
+    shown when the input asks for debug. Never raises.
+    """
     if not items:
-        return "none (no items)"
+        return "none (no items)", ""
     r = push_via_sdk(items)
     if r.startswith("sdk dataset"):
-        return r
+        return r, ""
     token, _ = _env(_TOKEN_ENV)
     ds, _ = _env(_DATASET_ENV)
     rest = "skipped (no token/dataset env)"
@@ -273,13 +279,13 @@ def push(items):
             headers={"Content-Type": "application/json", "User-Agent": UA})
         try:
             with urllib.request.urlopen(req, timeout=60) as resp:
-                return "rest dataset %s http=%s n=%d" % (ds, resp.status, len(items))
+                return "rest dataset http=%s n=%d" % (resp.status, len(items)), ""
         except Exception as exc:
             rest = "rest FAILED %s: %s" % (type(exc).__name__, exc)
     with open("output.jsonl", "a", encoding="utf-8") as fh:
         for it in items:
             fh.write(json.dumps(it, ensure_ascii=False) + "\n")
-    return "file only | %s | %s" % (r, rest)
+    return "local file only", "%s | %s" % (r, rest)
 
 
 def body_collection_links(body_id):
@@ -434,8 +440,35 @@ def charge(event_name="read-run"):
         return "charge failed %s: %s" % (type(exc).__name__, exc)
 
 
+def public_report(report):
+    """What a paying customer should see: what was read and what came back.
+
+    The capability fingerprint (resolved URL, paging mode proved by probing,
+    count per collection) is the product, so it stays. Plumbing - environment
+    variable names, SDK error strings, the per-request log - is for me and only
+    arrives when the input asks for debug.
+    """
+    out = {}
+    sysm = report.get("system") or {}
+    for k in ("system_name", "vendor", "license", "oparlVersion"):
+        if sysm.get(k) is not None:
+            out[k] = sysm[k]
+    for k in ("bodies_count", "fatal", "error"):
+        if k in report:
+            out[k] = report[k]
+    for k, v in report.items():
+        if k in ALL_COLLECTIONS and isinstance(v, dict):
+            if v.get("status") == "ok":
+                out[k] = {"status": "ok", "count": v.get("count"),
+                          "url": v.get("url"), "paging": v.get("paging")}
+            else:
+                out[k] = {"status": v.get("status", "unknown")}
+    return out
+
+
 def main():
     inp, diag = read_input()
+    debug = bool(inp.get("debug"))
     try:
         report, items, log = run(inp)
     except Exception:
@@ -443,23 +476,26 @@ def main():
         report = {"fatal": "unhandled exception in run()",
                   "traceback": traceback.format_exc()[-3000:]}
         items, log = [], []
-    report["plumbing"] = diag
     report["items_total"] = len(items)
-    report["log"] = log[-20:]
-    receipt_items = push(items) if items else "no items"
+    receipt_items, detail = push(items) if items else ("no items", "")
     # A custom pay-per-event event is only billed if the run reports it.
     # Charge only when objects were actually delivered: no value, no charge.
     receipt_charge = charge("read-run") if items else "no items delivered: not charged"
-    report["delivery_items"] = receipt_items
-    report["billing"] = receipt_charge
+    summary = public_report(report)
+    summary["items_total"] = len(items)
+    summary["delivery"] = receipt_items
+    summary["billing"] = receipt_charge
+    if debug:
+        summary["plumbing"] = diag
+        summary["push_detail"] = detail
+        summary["log"] = log[-20:]
+        summary["full_report"] = report
     # The report goes into the dataset as its own item, so a run that found
-    # nothing is still readable, and it carries the receipt for the item push
-    # so a failure says which route (sdk / rest / file) was taken. Exit code
-    # stays 0 on purpose: an empty dataset then cannot be mistaken for a
-    # crashed process.
-    receipt_report = push([{"_report": True, "report": report}])
-    report["delivery_report"] = receipt_report
-    print(json.dumps(report, indent=2, ensure_ascii=False))
+    # nothing is still readable, and it carries the receipt for the item push.
+    # Exit code stays 0 on purpose: an empty dataset then cannot be mistaken
+    # for a crashed process.
+    push([{"_report": True, "report": summary}])
+    print(json.dumps(summary, indent=2, ensure_ascii=False))
     return 0
 
 
