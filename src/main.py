@@ -379,6 +379,61 @@ def run(inp):
     return report, items_out, log
 
 
+def charge(event_name="read-run"):
+    """Charge one pay-per-event occurrence, or say plainly why it was not charged.
+
+    The event `read-run` is configured on the Actor's pay-per-event pricing, but
+    the platform only bills what the run itself reports: a custom event is never
+    charged automatically. So the run calls the charge endpoint with the token it
+    was given at startup. Docs: docs.apify.com/api/v2/post-charge-run.
+    Never fatal - a failed charge must not destroy data already fetched.
+    """
+    token = os.environ.get("APIFY_TOKEN") or os.environ.get("APIFY_API_TOKEN")
+    run_id = os.environ.get("APIFY_RUN_ID") or os.environ.get("ACTOR_RUN_ID")
+    if not token or not run_id:
+        return "not charged: no run token/run id in env"
+
+    # Price and model come from the platform, not from a constant I could get stale.
+    price = None
+    raw = os.environ.get("APIFY_ACTOR_PRICING_INFO") or ""
+    try:
+        info = json.loads(raw)
+        if info.get("pricingModel") != "PAY_PER_EVENT":
+            return "not charged: pricing model %r" % info.get("pricingModel")
+        events = (info.get("pricingPerEvent") or {}).get("actorChargeEvents") or {}
+        price = (events.get(event_name) or {}).get("eventPriceUsd")
+    except Exception:
+        pass  # env shape unknown: still try the charge, the platform validates it
+
+    # Above the user's own limit a charge is accepted but never paid out, while I
+    # still pay for the compute - so refuse it myself instead.
+    cap = os.environ.get("ACTOR_MAX_TOTAL_CHARGE_USD")
+    if cap and price is not None:
+        try:
+            if float(cap) < float(price):
+                return ("not charged: user limit $%s below event price $%s"
+                        % (cap, price))
+        except ValueError:
+            pass
+
+    key = "%s-%s-%s" % (time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                        run_id, event_name)
+    body = json.dumps({"eventName": event_name, "count": 1}).encode()
+    req = urllib.request.Request(
+        "https://api.apify.com/v2/actor-runs/%s/charge" % run_id, data=body,
+        headers={"Authorization": "Bearer " + token,
+                 "Content-Type": "application/json",
+                 "Idempotency-Key": key})
+    try:
+        with urllib.request.urlopen(req, timeout=25) as r:
+            return "charged http=%d event=%s price=%s" % (r.status, event_name, price)
+    except urllib.error.HTTPError as e:
+        return "charge refused http=%d %s" % (
+            e.code, e.read(300).decode("utf-8", "replace") if e.fp else "")
+    except Exception as exc:
+        return "charge failed %s: %s" % (type(exc).__name__, exc)
+
+
 def main():
     inp, diag = read_input()
     try:
@@ -392,7 +447,11 @@ def main():
     report["items_total"] = len(items)
     report["log"] = log[-20:]
     receipt_items = push(items) if items else "no items"
+    # A custom pay-per-event event is only billed if the run reports it.
+    # Charge only when objects were actually delivered: no value, no charge.
+    receipt_charge = charge("read-run") if items else "no items delivered: not charged"
     report["delivery_items"] = receipt_items
+    report["billing"] = receipt_charge
     # The report goes into the dataset as its own item, so a run that found
     # nothing is still readable, and it carries the receipt for the item push
     # so a failure says which route (sdk / rest / file) was taken. Exit code
